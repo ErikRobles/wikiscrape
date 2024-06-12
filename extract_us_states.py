@@ -2,27 +2,14 @@ import os
 import re
 import time
 import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 class USStatesExtractor:
     def __init__(self, driver):
         self.driver = driver
         self.output_directory = os.getcwd()
-        self.us_states = [
-            "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
-            "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
-            "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", 
-            "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", 
-            "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", 
-            "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", 
-            "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
-        ]
 
     def navigate_to_us_states_page(self):
         print("Opening Wikipedia page for 'Estados de los Estados Unidos'...")
@@ -32,36 +19,56 @@ class USStatesExtractor:
     def extract_us_states_data(self):
         print("Extracting list of US states...")
         try:
-            # Locate the list of states by finding all links in the main content
-            states_elements = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_all_elements_located((By.XPATH, '//table[contains(@class,"wikitable")][1]//a'))
+            # Locate the table containing the list of states
+            table = WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.XPATH, '//table[contains(@class,"wikitable")][1]'))
             )
         except Exception as e:
-            print(f"Error: {e}")
-            return
+            print(f"Error locating the table: {e}")
+            return None
 
-        if states_elements:
-            print(f"Found {len(states_elements)} state elements.")
+        if table:
+            print("Found the table.")
             state_data = []
+            headers = table.find_elements(By.TAG_NAME, 'th')
+            state_index = None
 
-            for element in states_elements:
-                state_name = element.text.strip()
-                state_url = element.get_attribute('href')
-                # Check if the URL points to a state page and if the state is in our predefined list
-                if state_url and "/wiki/" in state_url and state_name in self.us_states:
+            # Find the column index with header "Estado"
+            for index, header in enumerate(headers):
+                if header.text.strip() == "Estado":
+                    state_index = index
+                    break
+
+            if state_index is None:
+                print("Could not find the 'Estado' header.")
+                return None
+
+            rows = table.find_elements(By.TAG_NAME, 'tr')
+            print(f"Found {len(rows)} rows in the table.")
+
+            for row in rows[1:]:  # Skip header row
+                cells = row.find_elements(By.TAG_NAME, 'td')
+                if len(cells) > state_index:
+                    state_element = cells[state_index].find_element(By.TAG_NAME, 'a')
+                    state_name = state_element.text.strip()
+                    state_url = state_element.get_attribute('href')
+                    
+                    # Remove any <sup> elements from the state name
+                    sup_elements = cells[state_index].find_elements(By.TAG_NAME, 'sup')
+                    for sup in sup_elements:
+                        self.driver.execute_script("arguments[0].remove();", sup)
+                    
+                    state_name = state_element.text.strip()  # Re-fetch the state name after removing <sup> elements
                     state_data.append([state_name, state_url])
+                    print(f"Added state: {state_name}")
+
             print(f"Extracted {len(state_data)} states.")
 
             # Create DataFrame
             df_us_states = pd.DataFrame(state_data, columns=["State", "URL"])
-            output_file_us_states = os.path.join(self.output_directory, 'us_states.xlsx')
-            print(f"Saving data to '{output_file_us_states}'...")
-            df_us_states.to_excel(output_file_us_states, index=False)
-            print("Data saved successfully.")
+            return df_us_states
 
-    def extract_etimologia(self):
-        # Load the Excel file containing the list of US states
-        df_us_states = pd.read_excel(os.path.join(self.output_directory, 'us_states.xlsx'))
+    def extract_etimologia(self, df_us_states):
         state_links_us = []
 
         for index, row in df_us_states.iterrows():
@@ -81,7 +88,6 @@ class USStatesExtractor:
             try:
                 xpaths = [
                     "//span[@id='Etimología']/following::p[1]",
-                    "//span[@id='Etimología']/following::p",
                     "//h2[span[@id='Etimología']]/following-sibling::p[1]",
                     "//h3[span[@id='Etimología']]/following-sibling::p[1]",
                     "//h4[span[@id='Etimología']]/following-sibling::p[1]"
@@ -111,30 +117,11 @@ class USStatesExtractor:
                 continue
 
         df_etimologia = pd.DataFrame(etimologia_data, columns=["State", "Etimología"])
-        output_file_etimologia = os.path.join(self.output_directory, 'us_states_etimologia.xlsx')
-        print(f"Saving 'Etimología' data to '{output_file_etimologia}'...")
-        df_etimologia.to_excel(output_file_etimologia, index=False)
-        print("Etimología data saved successfully.")
+        return df_etimologia
 
-# Initialize Chrome options
-chrome_options = Options()
-chrome_options.add_argument("--disable-infobars")
-chrome_options.add_argument("--disable-extensions")
-chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-chrome_options.add_experimental_option('useAutomationExtension', False)
+    def save_to_excel(self, df_us_states, df_etimologia):
+        with pd.ExcelWriter(os.path.join(self.output_directory, 'us_states.xlsx')) as writer:
+            df_us_states.to_excel(writer, sheet_name='States', index=False)
+            df_etimologia.to_excel(writer, sheet_name='Etimología', index=False)
+        print("US states data saved successfully to 'us_states.xlsx'.")
 
-# Initialize the Chrome driver using ChromeDriverManager
-print("Setting up Chrome driver...")
-service = ChromeService(executable_path=ChromeDriverManager().install())
-driver = webdriver.Chrome(service=service, options=chrome_options)
-
-# Create an instance of USStatesExtractor and run the methods
-us_extractor = USStatesExtractor(driver)
-us_extractor.navigate_to_us_states_page()
-us_extractor.extract_us_states_data()
-us_extractor.extract_etimologia()
-
-# Close the browser
-print("Closing the browser...")
-driver.quit()
-print("Browser closed.")
