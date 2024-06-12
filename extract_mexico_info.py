@@ -31,6 +31,7 @@ class MexicoExtractor:
             table_data = []
             headers = []
 
+            # Extract data from the first table (Federative Entities by area, population, and density)
             first_table = tables[0]
             for header in first_table.find_elements(By.TAG_NAME, 'th'):
                 headers.append(header.text.strip())
@@ -42,22 +43,70 @@ class MexicoExtractor:
                     table_data.append(row_data)
             print(f"Extracted {len(table_data)} rows.")
 
-            df = pd.DataFrame(table_data, columns=headers)
+            df_federative_entities = pd.DataFrame(table_data, columns=headers)
 
-            for i, row in df.iterrows():
-                ciudad_mas_poblada = row['Ciudad más poblada']
-                capital = row['Capital']
-                if re.match(r"^\d", ciudad_mas_poblada):
-                    df.at[i, 'Ciudad más poblada'] = capital
+            # Keep only the required columns and rename them appropriately
+            required_columns = {
+                'Nombre oficial': 'Official Name',
+                'Superficie (km²)2': 'Area (km²)',
+                'Población (1T2022)3': 'Population (2022)',
+                'Densidad de población (hab/km²)': 'Population Density (hab/km²)'
+            }
+            df_federative_entities = df_federative_entities[list(required_columns.keys())]
+            df_federative_entities.rename(columns=required_columns, inplace=True)
 
-            df['Ciudad más poblada'] = df['Ciudad más poblada'].apply(lambda x: re.sub(r'nota \d+', '', x))
-
-            output_file = os.path.join(self.output_directory, 'mexico_federative_entities.xlsx')
+            # Initialize Excel writer
+            output_file = os.path.join(self.output_directory, 'mexico_data.xlsx')
             print(f"Saving data to '{output_file}'...")
-            df.to_excel(output_file, index=False)
+
+            with pd.ExcelWriter(output_file) as writer:
+                df_federative_entities.to_excel(writer, sheet_name='Federative Entities', index=False)
+
+                # Extract data from the second table (Historical Population of Mexico from Censuses)
+                if len(tables) > 1:
+                    second_table = tables[1]
+                    table_data = []
+                    headers = []
+
+                    for header in second_table.find_elements(By.TAG_NAME, 'th'):
+                        headers.append(header.text.strip())
+                    print(f"Headers: {headers}")
+
+                    for row in second_table.find_elements(By.TAG_NAME, 'tr')[1:]:
+                        row_data = [cell.text.strip() for cell in row.find_elements(By.TAG_NAME, 'td')]
+                        if row_data:
+                            table_data.append(row_data)
+                    print(f"Extracted {len(table_data)} rows.")
+
+                    df_historical_population_censuses = pd.DataFrame(table_data, columns=headers)
+                    df_historical_population_censuses.to_excel(writer, sheet_name='Historical Population Censuses', index=False)
+                else:
+                    print("Second table (Historical Population of Mexico from Censuses) not found.")
+
+                # Extract data from the third table (Historical Population of Mexico from Population Projections)
+                if len(tables) > 2:
+                    third_table = tables[2]
+                    table_data = []
+                    headers = []
+
+                    for header in third_table.find_elements(By.TAG_NAME, 'th'):
+                        headers.append(header.text.strip())
+                    print(f"Headers: {headers}")
+
+                    for row in third_table.find_elements(By.TAG_NAME, 'tr')[1:]:
+                        row_data = [cell.text.strip() for cell in row.find_elements(By.TAG_NAME, 'td')]
+                        if row_data:
+                            table_data.append(row_data)
+                    print(f"Extracted {len(table_data)} rows.")
+
+                    df_historical_population_projections = pd.DataFrame(table_data, columns=headers)
+                    df_historical_population_projections.to_excel(writer, sheet_name='Historical Population Projections', index=False)
+                else:
+                    print("Third table (Historical Population of Mexico from Population Projections) not found.")
+
             print("Data saved successfully.")
 
-            # Extract valid state links
+            # Extract valid state links for toponymy
             state_links = []
             rows = first_table.find_elements(By.XPATH, './/tr')
             for row in rows[1:]:
@@ -65,7 +114,7 @@ class MexicoExtractor:
                 if len(cells) > 0:
                     link = cells[0].find_element(By.TAG_NAME, 'a')
                     state_name = link.text.strip()
-                    state_url = link.get_attribute('href')
+                    state_url = link.get_attribute('href')  # URL remains encoded
 
                     # Remove any <sup> elements from the state name
                     sup_elements = link.find_elements(By.XPATH, ".//sup")
@@ -139,7 +188,7 @@ class MexicoExtractor:
         # Filter out invalid entries
         df_toponimia = df_toponimia[df_toponimia['State'].apply(lambda x: x not in ["nota", "", None])]
         df_toponimia = df_toponimia.drop_duplicates(subset=["State"])
-
+        
         output_file_toponimia = os.path.join(self.output_directory, 'mexico_toponimia.xlsx')
         print(f"Saving 'Toponimia' data to '{output_file_toponimia}'...")
         df_toponimia.to_excel(output_file_toponimia, index=False)
