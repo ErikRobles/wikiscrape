@@ -13,7 +13,7 @@ class MexicoExtractor:
 
     def navigate_to_mexico_page(self):
         print("Opening Wikipedia page for 'Entidades federativas de México'...")
-        self.driver.get('https://es.wikipedia.org/wiki/Anexo:Entidades_federativas_de_M%C3%A9xico')
+        self.driver.get('https://es.wikipedia.org/wiki/Anexo:Entidades_federativas_de_M%C3%A9xico_por_superficie,_poblaci%C3%B3n_y_densidad')
         time.sleep(5)
 
     def extract_mexico_data(self):
